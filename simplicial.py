@@ -1,24 +1,42 @@
 from typing import Union, List, Self, Type, Set, FrozenSet, Tuple, Iterable, Type
+from functools import cached_property
 import numpy as np
 import itertools
         
 
-class Vertices(frozenset):
+class Point(frozenset):
+    def __new__(cls, iterable: Iterable=None, distance: float=None):
+        instance = super().__new__(cls, iterable)
+        instance.distance  = distance
+        return instance
     def __repr__(self):
-        rep = "V{" + f"{",".join([str(v) for v in self.ordered()])}" + "}"
+        if self.distance: rep = f"P({self.distance:.2f})" + "{" + f"{",".join([str(v) for v in self.ordered()])}" + "}"
+        else: rep = "P{"+ f"{",".join([str(v) for v in self.ordered()])}" + "}"
         return rep
     @property
     def dim(self): return len(self) - 1
     def ordered(self) -> Tuple:
-        """Orders vertices into a list."""
+        """Orders point into a list."""
         return sorted(tuple(self))
     def closure(self):
-        """Return Simplex object of Vertices"""
+        """Return Simplex object of Point"""
         return Simplex(self)
+    def path(self, to: Point) -> PointSet:
+        """Returns PointSet of Points between (across dimensions) this Point and the given Point. INCLUSIVE."""
+        if not isinstance(to, Point): raise TypeError(f"'to' must be of type Point, got {type(to)}")
+        
+        if self == to:
+            return PointSet([self])
+        elif self < to:
+            return PointSet([point for point in to.closure().expand(self.dim) if self <= point])
+        elif to < self:
+            return PointSet([point for point in self.closure().expand(to.dim) if to <= point])
+        else:
+            return PointSet()
 
-class Simplex(Vertices):
+class Simplex(Point):
     def __repr__(self):
-        rep = "S{" + f"{",".join([str(v) for v in self.ordered()])}" + "}"
+        rep = "S{"+ f"{",".join([str(v) for v in self.ordered()])}" + "}"
         return rep
     def __contains__(self, o):
         if isinstance(o, (set,frozenset)):
@@ -26,9 +44,9 @@ class Simplex(Vertices):
         else: return NotImplemented
     def __sub__(self, o):
         if isinstance(o, Simplex):
-            return Vertices(self.expand() - o.expand())
-        elif isinstance(o, Vertices):
-            return Vertices(self.expand() - o)
+            return Point(self.expand() - o.expand())
+        elif isinstance(o, Point):
+            return Point(self.expand() - o)
         else: return NotImplemented
 
     def facets(self) -> SimplexSet:
@@ -37,60 +55,48 @@ class Simplex(Vertices):
         if facet_dim > self.dim: raise ValueError(f"Dimension of facet should be less than dimension of simplex. Given {facet_dim}, Expected <= {self.dim}.")
         ndfacets = SimplexSet({Simplex(verts) for verts in list(itertools.combinations(self, facet_dim+1))})
         return ndfacets
-    def expand(self, k: int=0) -> VerticesSet:
+    def expand(self, k: int=0) -> PointSet:
         "Expand to dimension k."
         if k > self.dim:
             raise ValueError(f"K should not be greater than the current dimension. Given k={k}, expected <= {self.dim}")
         else:
-            expansion = VerticesSet()
+            expansion = PointSet()
             while k <= self.dim:
                 facets = self.ndfacets(k)
-                for facet in facets:
-                    expansion.add(Vertices(facet))
+                expansion |= facets
                 k+=1
         return expansion
-    def closure(self):
-        """Simplices are represented as the closure of vertices."""
+    def closure(self): # Overwrites
+        """Simplices are represented as the closure of point."""
         return self
 
-class VerticesSet(set):
-    def __init__(self, iterable: Iterable[Vertices]=None):
+
+class PointSet(set):
+    def __init__(self, iterable: Iterable[Point]=None):
         corrected = []
         if iterable:
             for item in iterable:
                 corrected.append(self._validate(item))
         super().__init__(corrected)
     def __repr__(self):
-        rep = "VerticesSet{" + f"{",".join([str(v) for v in self.ordered()])}" + "}"
+        rep = "PointSet{" + f"{",".join([str(v) for v in self.ordered()])}" + "}"
         return rep
     def __and__(self, value):
-        return type(self)(super().__and__(value))
+        if type(self) == type(value):
+            return type(self)(super().__and__(value))
+        return PointSet(super().__and__(value))
     def __or__(self, value):
-        return type(self)(super().__or__(value))
+        if type(self) == type(value):
+            return type(self)(super().__or__(value))
+        return PointSet(super().__or__(value))
 
     def _validate(self, value):
-        if not isinstance(value, Vertices):
+        if not isinstance(value, Point):
             try:
-                return Vertices(value)
+                return Point(value)
             except:
-                raise TypeError(f"Expected Vertices, got {value.__class__}.")
+                raise TypeError(f"Expected Point, got {value.__class__}.")
         return value
-        if isinstance(o, Vertices):
-            for vertices in self:
-                if vertices > o:
-                    return True
-            return False
-        elif isinstance(o, VerticesSet):
-            count = 0
-            for o_vertices in o:
-                for vertices in self:
-                    if vertices > o_vertices:
-                        count += 1
-                        break
-            if count == len(o):
-                return True
-            else:
-                return False
     
     def add(self, element):
         element = self._validate(element)
@@ -99,37 +105,34 @@ class VerticesSet(set):
     @property
     def dim(self): return max([s.dim for s in self])
 
-    def kvertices(self, k: int) -> VerticesSet:
-        """Return all vertices of dimension k in the vertices set."""
-        return VerticesSet([vertices for vertices in self if vertices.dim == k])
+    def kpoints(self, k: int) -> PointSet:
+        """Return all point of dimension k in the point set."""
+        return PointSet([point for point in self if point.dim == k])
     
     def closure(self) -> SimplexSet:
-        """Return SimplexSet of VerticesSet (returns the closure)."""
-        return SimplexSet([Simplex(vertices) for vertices in self])
+        """Return SimplexSet of PointSet (returns the closure)."""
+        return SimplexSet([Simplex(point) for point in self])
     
     def ordered(self) -> List:
         """Deterministically orders simplex set into list."""
         return sorted(list(self), key= lambda s: (s.dim, s.ordered()))
     
 
-class SimplexSet(VerticesSet):
+class SimplexSet(PointSet):
+    @cached_property
+    def max_simplices(self):
+        return find_max_simplices(self)
+    
     def __repr__(self):
         rep = "SimplexSet{" + f"{",".join([str(v) for v in self.ordered()])}" + "}"
         return rep
-
-    def _validate(self, value):
-        if not isinstance(value, Simplex):
-            try:
-                return Simplex(value)
-            except:
-                raise TypeError(f"Expected Simplex, got {value.__class__}.")
-        return value
     def __contains__(self, o):
         if isinstance(o, (set, frozenset)):
             if o <= self.expand():
                 return True
+            else:
+                return False
         else: return NotImplemented
-        return False
     def __le__(self, o):
         if isinstance(o, (Simplex, SimplexSet)):
             if self <= o.expand():
@@ -160,42 +163,37 @@ class SimplexSet(VerticesSet):
         else: return NotImplemented
     def __sub__(self, o):
         if isinstance(o, SimplexSet):
-            return VerticesSet(self.expand() - o.expand())
+            return PointSet(self.expand() - o.expand())
         elif isinstance(o, (set, frozenset)):
-            return VerticesSet(self.expand() - o)
+            return PointSet(self.expand() - o)
         else: return NotImplemented
     
     # Overwrites
     def add(self, element):
         element = self._validate(element)
+        if not element <= self and 'max_simplices' in self.__dict__:
+            del self.max_simplices
         super().add(element)
 
-    def expand(self, k: int=0) -> VerticesSet:
-        """Expand the set of simplices to a Vertices Set down to a given dimension k."""
-        expansion = VerticesSet()
+    def _validate(self, value):
+        if not isinstance(value, Simplex):
+            try:
+                return Simplex(value)
+            except:
+                raise TypeError(f"Expected Simplex, got {value.__class__}.")
+        return value
+
+    def expand(self, k: int=0) -> PointSet:
+        """Expand the set of simplices to a Point Set down to a given dimension k."""
+        expansion = PointSet()
         for simplex in self:
             simplex_expansion = simplex.expand(k)
-            for se in simplex_expansion:
-                expansion.add(se)
+            expansion |= simplex_expansion
         return expansion
     
-    def closure(self):
-        """Simplices are already representations of vertices after closure."""
+    def closure(self): # Overwrites
+        """Simplices are already representations of point after closure."""
         return self
-
-    def between(self, simplex1: Simplex, simplex2: Simplex) -> VerticesSet:
-        """Returns all vertices between two simplices from different dimensions (inclusive)."""
-        if not SimplexSet([simplex1, simplex2]) <= self: raise ValueError("Given simplices must be a subset of a Simplex in SimplexSet")
-        dim1, dim2 = simplex1.dim, simplex2.dim
-        
-        if simplex1 == simplex2:
-            return VerticesSet([simplex1])
-        elif simplex1 < simplex2:
-            return VerticesSet([vertices for vertices in simplex2.expand(dim1) if simplex1 <= vertices])
-        elif simplex2 < simplex1:
-            return VerticesSet([vertices for vertices in simplex1.expand(dim2) if simplex2 <= vertices])
-        else:
-            return VerticesSet()
 
     def ksimplices(self, k: int) -> SimplexSet:
         """Return all simplices of dimension k in the simplex set."""
@@ -206,52 +204,44 @@ class SimplexSet(VerticesSet):
             elif simplex.dim == k:
                 ksimplices.add(simplex)
             else:
-                kfacets = kfacets | simplex.ndfacets(k)
+                ksimplices |= simplex.ndfacets(k)
         return ksimplices
 
-    def facets(self, simplices: Union[Simplex, Iterable[Simplex]]) -> SimplexSet:
-        if not isinstance(simplices, Iterable): simplices = [simplices]
-        if not isinstance(simplices, SimplexSet): simplices = SimplexSet(simplices)
-        if not simplices <= self: raise ValueError("Given simplices must be a subset of a Simplex in SimplexSet")
-
+    def facets(self) -> SimplexSet:
         facets = SimplexSet()
-        for simplex in simplices:
-            facets = facets | simplex.facets()
+        for simplex in self:
+            facets |= simplex.facets()
         return facets
 
-    def cofaces(self, simplices: Union[Simplex, Iterable[Simplex]]) -> SimplexSet:
-        if not isinstance(simplices, Iterable): simplices = [simplices]
-        if not isinstance(simplices, SimplexSet): simplices = SimplexSet(simplices)
-        if not simplices <= self: raise ValueError("Given simplices must be a subset of a Simplex in SimplexSet")
-
+    def cofaces(self) -> SimplexSet:
+        """Return the cofaces of the set. Cofaces are faces of which these simplices are facets."""
         cofaces = SimplexSet()
-        for simplex in simplices:
+        for simplex in self:
             star = self.star(simplex)
-            simplex_cofaces = SimplexSet([Simplex(vertices) for vertices in star if vertices.dim == simplex.dim+1])
-            cofaces = cofaces | simplex_cofaces
+            simplex_cofaces = SimplexSet([Simplex(point) for point in star if point.dim == simplex.dim+1])
+            cofaces |= simplex_cofaces
         return cofaces
 
-    def star(self, simplices: Union[Simplex, Iterable[Simplex]]) -> VerticesSet:
-        if not isinstance(simplices, Iterable): simplices = [simplices]
-        if not isinstance(simplices, SimplexSet): simplices = SimplexSet(simplices)
-        if not simplices <= self: raise ValueError("Given simplices must be a subset of a Simplex in SimplexSet")
-
-        star = VerticesSet()
-        for given_simplex in simplices:
-            for self_simplex in self:
-                if given_simplex <= self_simplex:
-                    between = self.between(given_simplex, self_simplex)
-                    for vertices in between:
-                        star.add(vertices)
+    def star(self) -> PointSet:
+        max_simplices = find_max_simplices(self)
+        star = PointSet()
+        for simplex in self:
+            for max_simplex in max_simplices:
+                between = simplex.path(max_simplex)
+                star |= between
         return star
 
-    def link(self, simplices: Union[Simplex, Iterable[Simplex]]) -> SimplexSet:
-        if not isinstance(simplices, Iterable): simplices = [simplices]
-        if not isinstance(simplices, SimplexSet): simplices = SimplexSet(simplices)
-        if not simplices <= self: raise ValueError("Given simplices must be a subset of a Simplex in SimplexSet")
-
-        star = self.star(simplices)
+    def link(self) -> SimplexSet:
+        star = self.star()
         return SimplexSet(star.closure() - star)
+
+
+class SimplicialComplex(SimplexSet):
+    # Initialize in a way to ensure that only maximal simplices are held in the set.
+
+    def __repr__(self):
+        rep = "SimplicialComplex{" + f"{",".join([str(v) for v in self.ordered()])}" + "}"
+        return rep
 
 
 def build_simplicial_complex(mat, columns = None):
@@ -266,14 +256,45 @@ def build_simplicial_complex(mat, columns = None):
 
     for i in range(0, mat.shape[0]):
         for j in range(0, mat.shape[1]):
-            if i < j and mat[i,j] == 1:
-                simplices.add(Simplex([columns[i],columns[j]]))
+            if i < j and mat[i,j] != 0:
+                simplices.add(Simplex([columns[i],columns[j]], distance=float(mat[i,j])))
 
-    return SimplexSet(simplices)
+    return SimplicialComplex(simplices)
+
+def find_max_simplices(simplex_set: SimplexSet) -> SimplexSet:
+    verts = simplex_set.ksimplices(0)
+    edges = simplex_set.ksimplices(1)
+
+    max_simplices = verts | edges
+    max_simplices -= edges.facets()
+    d = 1
+    faces_d = edges
+    while len(faces_d) > d+1:
+        faces_dp1 = set()
+        candidate_vertices = [*simplex_set.ksimplices(d-1)]
+        for combo in itertools.combinations(candidate_vertices, d+2):
+            ps = set()
+            ps.update(*[set(elem) for elem in combo])
+            ps = Simplex(ps)
+            needed_d_simplices = ps.facets()
+            if needed_d_simplices <= faces_d:
+                faces_dp1.add(ps)
+                max_simplices.add(ps)
+                max_simplices -= needed_d_simplices
+        d+=1
+        faces_d = faces_dp1
+
+    return max_simplices
+        
 
 
 
 if __name__ == "__main__":
-    simplex_set = SimplexSet([Simplex('abc'),Simplex('cd'),Simplex('de')])
-    link = simplex_set.link([Simplex('c'), Simplex('e')])
-    cofaces = simplex_set.cofaces([Simplex('b'),Simplex('ac')])
+    mat = np.array([[0,1,1,0,0],[1,0,1,0,0],[1,1,0,1,0],[0,0,1,0,1],[0,0,0,1,0]])
+    print(mat)
+    sc = build_simplicial_complex(mat, columns=list('abcde'))
+    print(sc.max_simplices)
+
+    # simplex_set = SimplicialComplex([Simplex('abc'),Simplex('cd'),Simplex('de')])
+    # link = simplex_set.link([Simplex('c'), Simplex('e')])
+    # cofaces = simplex_set.cofaces([Simplex('b'),Simplex('ac')])
