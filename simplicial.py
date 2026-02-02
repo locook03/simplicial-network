@@ -115,7 +115,7 @@ class PointSet(set):
     
     def ordered(self) -> List:
         """Deterministically orders simplex set into list."""
-        return sorted(list(self), key= lambda s: (s.dim, s.ordered()))
+        return sorted(list(self), key= lambda s: (-s.dim, s.ordered()))
     
 
 class SimplexSet(PointSet):
@@ -173,7 +173,7 @@ class SimplexSet(PointSet):
         element = self._validate(element)
         if not element <= self and 'max_simplices' in self.__dict__:
             del self.max_simplices
-        super().add(element)
+        super(PointSet, self).add(element)
 
     def _validate(self, value):
         if not isinstance(value, Simplex):
@@ -208,6 +208,7 @@ class SimplexSet(PointSet):
         return ksimplices
 
     def facets(self) -> SimplexSet:
+        """Return the facets of the set."""
         facets = SimplexSet()
         for simplex in self:
             facets |= simplex.facets()
@@ -223,6 +224,7 @@ class SimplexSet(PointSet):
         return cofaces
 
     def star(self) -> PointSet:
+        """Return a PointSet of all points that exist 'above' the set."""
         max_simplices = find_max_simplices(self)
         star = PointSet()
         for simplex in self:
@@ -232,19 +234,46 @@ class SimplexSet(PointSet):
         return star
 
     def link(self) -> SimplexSet:
+        """Returns the link of the set. Link = closure of the star - star."""
         star = self.star()
         return SimplexSet(star.closure() - star)
 
 
 class SimplicialComplex(SimplexSet):
-    # Initialize in a way to ensure that only maximal simplices are held in the set.
+    """Similar to SimplexSet, but ensures membership of only maximum simplices."""
+    def __init__(self, iterable: Iterable[Simplex]=None):
+        corrected = SimplexSet()
+        if iterable:
+            for item in iterable:
+                corrected.add(self._validate(item))
+            corrected = find_max_simplices(corrected)
+        super().__init__(corrected)
 
     def __repr__(self):
         rep = "SimplicialComplex{" + f"{",".join([str(v) for v in self.ordered()])}" + "}"
         return rep
+    
+    def add(self, element: Simplex):
+        element = self._validate(element)
+        if element <= self:
+            return
+        to_remove = SimplexSet()
+        to_add = SimplexSet()
+        for simplex in self:
+            if simplex < element:
+                to_remove.add(simplex)
+                to_add.add(simplex)
+        for simplex in to_remove:
+            super(PointSet, self).remove(simplex)
+        for simplex in to_add:
+            super(PointSet, self).add(element)
+
+    @property
+    def max_simplices(self):
+        return self
 
 
-def build_simplicial_complex(mat, columns = None):
+def adjMat_to_simpComplex(mat, columns = None):
     # Create edges of adjacency matrix
     if columns is None: columns = range(0, mat.shape[0])
     if not len(columns) == mat.shape[0]: raise ValueError
@@ -285,14 +314,14 @@ def find_max_simplices(simplex_set: SimplexSet) -> SimplexSet:
         faces_d = faces_dp1
 
     return max_simplices
-        
+
 
 
 
 if __name__ == "__main__":
     mat = np.array([[0,1,1,0,0],[1,0,1,0,0],[1,1,0,1,0],[0,0,1,0,1],[0,0,0,1,0]])
     print(mat)
-    sc = build_simplicial_complex(mat, columns=list('abcde'))
+    sc = adjMat_to_simpComplex(mat, columns=list('abcde'))
     print(sc.max_simplices)
 
     # simplex_set = SimplicialComplex([Simplex('abc'),Simplex('cd'),Simplex('de')])
