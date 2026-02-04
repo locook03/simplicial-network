@@ -2,6 +2,9 @@ from typing import Union, List, Set, FrozenSet, Tuple, Iterable, Dict, Optional,
 from functools import cached_property
 import itertools
 
+import numpy as np
+
+
 class Point(frozenset):
     """
     A vertex-set with an optional 'distance' attribute. Dimension is |verts|-1.
@@ -229,6 +232,33 @@ class SimplicialComplex(PointSet):
         """Link = closure(star) - star."""
         star = self.star()
         return SimplicialComplex(star.closure() - star)
+    
+    def k_boundary_matrix(self, k: int) -> np.ndarray:
+        """
+        Boundary matrix D_k : C_k -> C_{k-1} over F2 (entries 0/1).
+        Rows index (k-1)-simplices, columns index k-simplices.
+
+        Note: ordering is deterministic via .ordered().
+        """
+        if k < 1:
+            raise ValueError("k must be >= 1.")
+
+        ksimplices = self.ksimplices(k).ordered()
+        km1simplices = self.ksimplices(k - 1).ordered()
+
+        nk = len(ksimplices)
+        nkm1 = len(km1simplices)
+
+        col_idx = {s: j for j, s in enumerate(ksimplices)}
+        row_idx = {s: i for i, s in enumerate(km1simplices)}
+
+        d = np.zeros((nkm1, nk), dtype=np.uint8)
+        for ksimplex in ksimplices:
+            j = col_idx[ksimplex]
+            for facet in ksimplex.facets():
+                i = row_idx[facet]
+                d[i, j] = 1
+        return d
 
 
 class Chain(SimplicialComplex):

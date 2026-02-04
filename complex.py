@@ -40,37 +40,6 @@ class CliqueComplex(SimplicialComplex):
             super(PointSet, self).remove(simplex)
         super(PointSet, self).add(element)
 
-    @property
-    def max_simplices(self):
-        return self
-
-    def k_boundary_matrix(self, k: int) -> np.ndarray:
-        """
-        Boundary matrix D_k : C_k -> C_{k-1} over F2 (entries 0/1).
-        Rows index (k-1)-simplices, columns index k-simplices.
-
-        Note: ordering is deterministic via .ordered().
-        """
-        if k < 1:
-            raise ValueError("k must be >= 1.")
-
-        ksimplices = self.ksimplices(k).ordered()
-        km1simplices = self.ksimplices(k - 1).ordered()
-
-        nk = len(ksimplices)
-        nkm1 = len(km1simplices)
-
-        col_idx = {s: j for j, s in enumerate(ksimplices)}
-        row_idx = {s: i for i, s in enumerate(km1simplices)}
-
-        d = np.zeros((nkm1, nk), dtype=np.uint8)
-        for ksimplex in ksimplices:
-            j = col_idx[ksimplex]
-            for facet in ksimplex.facets():
-                i = row_idx[facet]
-                d[i, j] = 1
-        return d
-
 
 def adj_mat_to_clique_complex(mat, columns=None) -> CliqueComplex:
     """
