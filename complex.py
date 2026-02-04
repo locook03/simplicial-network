@@ -1,36 +1,37 @@
 from typing import Union, List, Set, FrozenSet, Tuple, Iterable, Dict, Optional, Any
 import numpy as np
 
-from combinatorics import Point, PointSet, Simplex, SimplexSet, Chain, find_max_simplices
+from combinatorics import Point, PointSet, Simplex, SimplicialComplex, Chain, find_supersets
 from homology import Metric
 
-class SimplicialComplex(SimplexSet):
+
+class CliqueComplex(SimplicialComplex):
     """
-    Similar to SimplexSet, but ensures membership of only maximum simplices.
+    Similar to SimplicialComplex, but ensures membership of only maximum simplices.
 
     Attributes:
         metric: Metric helper for homology computations (over F2).
     """
     def __init__(self, iterable: Iterable[Simplex] = None):
-        corrected = SimplexSet()
+        corrected = SimplicialComplex()
         if iterable:
             for item in iterable:
                 corrected.add(self._validate(item))
-            corrected = find_max_simplices(corrected)
+            corrected = find_supersets(corrected)
         super(PointSet, self).__init__(corrected)
 
         # Attach metric helper
         self.metric = Metric(self)
 
     def __repr__(self):
-        rep = "SimplicialComplex{" + f"{','.join([str(v) for v in self.ordered()])}" + "}"
+        rep = "CliqueComplex{" + f"{','.join([str(v) for v in self.ordered()])}" + "}"
         return rep
 
     def add(self, element: Simplex):
         element = self._validate(element)
         if element <= self:
             return
-        to_remove = SimplexSet()
+        to_remove = SimplicialComplex()
         # if existing simplex is contained in new element, remove it
         for simplex in self:
             if simplex < element:
@@ -69,11 +70,11 @@ class SimplicialComplex(SimplexSet):
                 i = row_idx[facet]
                 d[i, j] = 1
         return d
-    
 
-def adjMat_to_simpComplex(mat, columns=None) -> SimplicialComplex:
+
+def adj_mat_to_clique_complex(mat, columns=None) -> CliqueComplex:
     """
-    Build a 1-skeleton simplicial complex (vertices + edges) from an adjacency matrix.
+    Build a clique complex from an adjacency matrix by adding 1-skeleton simplices.
     """
     if columns is None:
         columns = range(0, mat.shape[0])
@@ -92,21 +93,21 @@ def adjMat_to_simpComplex(mat, columns=None) -> SimplicialComplex:
             if i < j and mat[i, j] != 0:
                 simplices.add(Simplex([columns[i], columns[j]], distance=float(mat[i, j])))
 
-    return SimplicialComplex(simplices)
+    return CliqueComplex(simplices)
 
 
 if __name__ == "__main__":
-    mat = np.array([[0, 1, 0, 1, 0],
-                    [1, 0, 1, 0, 0],
+    mat = np.array([[0, 1, 1, 1, 0],
+                    [1, 0, 1, 1, 0],
                     [0, 1, 0, 1, 0],
                     [1, 0, 1, 0, 0],
                     [0, 0, 0, 0, 0]])
 
-    sc = adjMat_to_simpComplex(mat, columns=list("abcde"))
+    clique_complex = adj_mat_to_clique_complex(mat, columns=list("abcde"))
 
-    print("SC:", sc)
-    print("1-simplices:", sc.ksimplices(1))
-    print("D1:\n", sc.k_boundary_matrix(1))
+    print("Clique Complex:", clique_complex)
+    print("1-simplices:", clique_complex.ksimplices(1))
+    print("D1:\n", clique_complex.k_boundary_matrix(1))
 
     # Example: Betti numbers on the clique complex induced by max_simplices procedure
-    print("Betti (up to dim 2):", sc.metric.betti_numbers(max_dim=2))
+    print("Betti (up to dim 2):", clique_complex.metric.betti_numbers(max_dim=2))

@@ -71,15 +71,15 @@ class Simplex(Point):
             return Point(self.expand() - o)
         return NotImplemented
 
-    def facets(self) -> "SimplexSet":
+    def facets(self) -> "SimplicialComplex":
         return self.ndfacets(self.dim - 1)
 
-    def ndfacets(self, facet_dim: int) -> "SimplexSet":
+    def ndfacets(self, facet_dim: int) -> "SimplicialComplex":
         if facet_dim > self.dim:
             raise ValueError(
                 f"Dimension of facet should be <= dimension of simplex. Given {facet_dim}, expected <= {self.dim}."
             )
-        ndfacets = SimplexSet({Simplex(verts) for verts in itertools.combinations(self, facet_dim + 1)})
+        ndfacets = SimplicialComplex({Simplex(verts) for verts in itertools.combinations(self, facet_dim + 1)})
         return ndfacets
 
     def expand(self, k: int = 0) -> "PointSet":
@@ -93,7 +93,7 @@ class Simplex(Point):
             cur += 1
         return expansion
 
-    def closure(self) -> "SimplexSet":  # overwrites Point.closure
+    def closure(self) -> "SimplicialComplex":  # overwrites Point.closure
         """Simplices are represented as the closure of point."""
         return self
 
@@ -140,22 +140,21 @@ class PointSet(set):
         """Return all points of dimension k in the point set."""
         return PointSet([point for point in self if point.dim == k])
 
-    def closure(self) -> "SimplexSet":
-        """Return SimplexSet of PointSet (returns the closure)."""
-        return SimplexSet([Simplex(point) for point in self])
+    def closure(self) -> "SimplicialComplex":
+        """Return SimplicialComplex of PointSet (returns the closure)."""
+        return SimplicialComplex([Simplex(point) for point in self])
 
     def ordered(self) -> List:
         """Deterministically orders set into list."""
         return sorted(list(self), key=lambda s: (-s.dim, s.ordered()))
 
 
-class SimplexSet(PointSet):
-    @cached_property
-    def max_simplices(self) -> "SimplexSet":
-        return find_max_simplices(self)
-
+class SimplicialComplex(PointSet):
+    """
+    Family of Simplexes. Family of sets that is closed under taking subsets.
+    """
     def __repr__(self):
-        rep = "SimplexSet{" + f"{','.join([str(v) for v in self.ordered()])}" + "}"
+        rep = "SimplicialComplex{" + f"{','.join([str(v) for v in self.ordered()])}" + "}"
         return rep
 
     def __contains__(self, o):
@@ -164,20 +163,11 @@ class SimplexSet(PointSet):
         return NotImplemented
 
     def __sub__(self, o):
-        if isinstance(o, SimplexSet):
+        if isinstance(o, SimplicialComplex):
             return PointSet(self.expand() - o.expand())
         elif isinstance(o, (set, frozenset)):
             return PointSet(self.expand() - o)
         return NotImplemented
-
-    def add(self, element):
-        element = self._validate(element)
-        # Invalidate cached max_simplices if needed
-        if "max_simplices" in self.__dict__:
-            # If adding something not already in closure, cache is stale
-            if not (element <= self):
-                del self.__dict__["max_simplices"]
-        super(PointSet, self).add(element)
 
     def _validate(self, value):
         if not isinstance(value, Simplex):
@@ -194,13 +184,13 @@ class SimplexSet(PointSet):
             expansion |= simplex.expand(k)
         return expansion
 
-    def closure(self) -> "SimplexSet":  # overwrites
+    def closure(self) -> "SimplicialComplex":  # overwrites
         """Simplices are already representations of points after closure."""
         return self
 
-    def ksimplices(self, k: int) -> "SimplexSet":
+    def ksimplices(self, k: int) -> "SimplicialComplex":
         """Return all simplices of dimension k in the set."""
-        ks = SimplexSet()
+        ks = SimplicialComplex()
         for simplex in self:
             if simplex.dim < k:
                 continue
@@ -210,38 +200,38 @@ class SimplexSet(PointSet):
                 ks |= simplex.ndfacets(k)
         return ks
 
-    def facets(self) -> "SimplexSet":
+    def facets(self) -> "SimplicialComplex":
         """Return the facets of the set."""
-        facets = SimplexSet()
+        facets = SimplicialComplex()
         for simplex in self:
             facets |= simplex.facets()
         return facets
 
-    def cofaces(self) -> "SimplexSet":
+    def cofaces(self) -> "SimplicialComplex":
         """Return the cofaces of the set (simplices for which these are facets)."""
-        cofaces = SimplexSet()
+        cofaces = SimplicialComplex()
         for simplex in self:
             star = self.star()  # star of entire set
-            simplex_cofaces = SimplexSet([Simplex(point) for point in star if point.dim == simplex.dim + 1])
+            simplex_cofaces = SimplicialComplex([Simplex(point) for point in star if point.dim == simplex.dim + 1])
             cofaces |= simplex_cofaces
         return cofaces
 
     def star(self) -> PointSet:
         """Return a PointSet of all points that exist 'above' the set."""
-        max_simplices = find_max_simplices(self)
+        supersets = find_supersets(self)
         star = PointSet()
         for simplex in self:
-            for max_simplex in max_simplices:
+            for max_simplex in supersets:
                 star |= simplex.path(max_simplex)
         return star
 
-    def link(self) -> "SimplexSet":
+    def link(self) -> "SimplicialComplex":
         """Link = closure(star) - star."""
         star = self.star()
-        return SimplexSet(star.closure() - star)
+        return SimplicialComplex(star.closure() - star)
 
 
-class Chain(SimplexSet):
+class Chain(SimplicialComplex):
     """
     A chain over F2: a set of simplices (symmetric-difference addition).
     Enforces all simplices have the same dimension.
@@ -268,7 +258,7 @@ class Chain(SimplexSet):
         return boundary
 
 
-def find_max_simplices(simplex_set: SimplexSet) -> SimplexSet:
+def find_supersets(simplex_set: SimplicialComplex) -> SimplicialComplex:
     """
     Given a set containing simplices (not necessarily maximal), return only maximal simplices.
 
@@ -278,8 +268,8 @@ def find_max_simplices(simplex_set: SimplexSet) -> SimplexSet:
     verts = simplex_set.ksimplices(0)
     edges = simplex_set.ksimplices(1)
 
-    max_simplices = verts | edges
-    max_simplices -= edges.facets()
+    supersets = verts | edges
+    supersets -= edges.facets()
 
     d = 1
     faces_d = edges
@@ -293,9 +283,9 @@ def find_max_simplices(simplex_set: SimplexSet) -> SimplexSet:
             needed_d_simplices = ps.facets()
             if needed_d_simplices <= faces_d:
                 faces_dp1.add(ps)
-                max_simplices.add(ps)
-                max_simplices -= needed_d_simplices
+                supersets.add(ps)
+                supersets -= needed_d_simplices
         d += 1
         faces_d = faces_dp1
 
-    return max_simplices
+    return supersets
