@@ -136,7 +136,7 @@ if __name__ == "__main__":
     columns = list("abcd")
     metric = rips_filtration(mat, columns=columns)
     print(adj_mat_to_clique_complex(mat, columns=columns))
-    pp = metric.persistence_pairs()
+    pp = metric.persistence_intervals(include_simplices=True)
     print(pp)
     print(metric.betti_numbers())
     print("done")
