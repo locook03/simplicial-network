@@ -15,11 +15,14 @@ class Point(frozenset):
     """
     def __new__(cls, iterable: Iterable = None, distance: float = None):
         instance = super().__new__(cls, iterable if iterable is not None else ())
-        instance.distance = distance
+        if distance is not None:
+            instance.distance = distance
+        else:
+            instance.distance = float('inf')
         return instance
 
     def __repr__(self):
-        if getattr(self, "distance", None) is not None:
+        if self.distance != float('inf'):
             rep = f"P({self.distance:.2f})" + "{" + f"{','.join([str(v) for v in self.ordered()])}" + "}"
         else:
             rep = "P{" + f"{','.join([str(v) for v in self.ordered()])}" + "}"
@@ -59,7 +62,10 @@ class Simplex(Point):
     A simplex is represented by its vertex set (a frozenset) with an optional distance attribute.
     """
     def __repr__(self):
-        rep = "S{" + f"{','.join([str(v) for v in self.ordered()])}" + "}"
+        if self.distance != float('inf'):
+            rep = f"S({self.distance:.2f})" + "{" + f"{','.join([str(v) for v in self.ordered()])}" + "}"
+        else:
+            rep = "S{" + f"{','.join([str(v) for v in self.ordered()])}" + "}"
         return rep
 
     def __contains__(self, o):
@@ -149,7 +155,7 @@ class PointSet(set):
 
     def ordered(self) -> List:
         """Deterministically orders set into list."""
-        return sorted(list(self), key=lambda s: (-s.dim, s.ordered()))
+        return sorted(list(self), key=lambda s: (getattr(s, 'distance', float('inf')), -s.dim, s.ordered()))
 
 
 class SimplicialComplex(PointSet):
@@ -232,33 +238,6 @@ class SimplicialComplex(PointSet):
         """Link = closure(star) - star."""
         star = self.star()
         return SimplicialComplex(star.closure() - star)
-    
-    def k_boundary_matrix(self, k: int) -> np.ndarray:
-        """
-        Boundary matrix D_k : C_k -> C_{k-1} over F2 (entries 0/1).
-        Rows index (k-1)-simplices, columns index k-simplices.
-
-        Note: ordering is deterministic via .ordered().
-        """
-        if k < 1:
-            raise ValueError("k must be >= 1.")
-
-        ksimplices = self.ksimplices(k).ordered()
-        km1simplices = self.ksimplices(k - 1).ordered()
-
-        nk = len(ksimplices)
-        nkm1 = len(km1simplices)
-
-        col_idx = {s: j for j, s in enumerate(ksimplices)}
-        row_idx = {s: i for i, s in enumerate(km1simplices)}
-
-        d = np.zeros((nkm1, nk), dtype=np.uint8)
-        for ksimplex in ksimplices:
-            j = col_idx[ksimplex]
-            for facet in ksimplex.facets():
-                i = row_idx[facet]
-                d[i, j] = 1
-        return d
 
 
 class Chain(SimplicialComplex):
@@ -288,7 +267,7 @@ class Chain(SimplicialComplex):
         return boundary
 
 
-def find_supersets(simplex_set: SimplicialComplex) -> SimplicialComplex:
+def find_supersets(simplex_set: SimplicialComplex, max_only: bool = True) -> SimplicialComplex:
     """
     Given a set containing simplices (not necessarily maximal), return only maximal simplices.
 
@@ -305,16 +284,16 @@ def find_supersets(simplex_set: SimplicialComplex) -> SimplicialComplex:
     faces_d = edges
     while len(faces_d) > d + 1:
         faces_dp1 = set()
-        candidate_vertices = list(simplex_set.ksimplices(d - 1))
-        for combo in itertools.combinations(candidate_vertices, d + 2):
+        for combo in itertools.combinations(faces_d, d + 2):
             ps = set()
             ps.update(*[set(elem) for elem in combo])
-            ps = Simplex(ps)
+            ps = Simplex(ps, distance=max([s.distance for s in combo]))
             needed_d_simplices = ps.facets()
             if needed_d_simplices <= faces_d:
                 faces_dp1.add(ps)
                 supersets.add(ps)
-                supersets -= needed_d_simplices
+                if max_only:
+                    supersets -= needed_d_simplices
         d += 1
         faces_d = faces_dp1
 
