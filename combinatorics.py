@@ -1,4 +1,5 @@
-from typing import Union, List, Set, FrozenSet, Tuple, Iterable, Dict, Optional, Any
+from collections import defaultdict, deque
+from typing import Union, List, Set, FrozenSet, Tuple, Iterable, Dict, Optional, Any, Hashable
 from functools import cached_property
 import itertools
 
@@ -227,7 +228,7 @@ class SimplicialComplex(PointSet):
 
     def star(self) -> PointSet:
         """Return a PointSet of all points that exist 'above' the set."""
-        supersets = find_supersets(self)
+        supersets = grow_skeleton(self.ksimplices(1), np.inf)
         star = PointSet()
         for simplex in self:
             for max_simplex in supersets:
@@ -266,35 +267,100 @@ class Chain(SimplicialComplex):
                     boundary.add(facet)
         return boundary
 
-
-def find_supersets(simplex_set: SimplicialComplex, max_only: bool = True) -> SimplicialComplex:
+def grow_skeleton(edges: SimplicialComplex, max_dim: int = 3) -> SimplicialComplex:
     """
     Given a set containing simplices (not necessarily maximal), return only maximal simplices.
 
     This function grows higher-dimensional simplices when all faces exist (clique/flag style),
     and prunes faces that are contained in higher-dimensional simplices.
     """
-    verts = simplex_set.ksimplices(0)
-    edges = simplex_set.ksimplices(1)
+    edges = edges.ksimplices(1) # Ensure edges are actually edges
+    dm1_points = edges.copy()
+    simplices = []
+    d = 2
+    while d <= max_dim and len(dm1_points) > d:
+        supersets = cliques_of_size(edges, d+1)
+        d_points = []
+        for vert_list in supersets:
+            point = Simplex(vert_list)
+            distances = [dm1_s.distance for s in point.facets() for dm1_s in dm1_points if s==dm1_s]
+            point.distance = max(distances)
+            d_points.append(point)
+        dm1_points = d_points
+        simplices.extend(d_points)
+        d+=1
 
-    supersets = verts | edges
-    supersets -= edges.facets()
+    return SimplicialComplex(simplices)
 
-    d = 1
-    faces_d = edges
-    while len(faces_d) > d + 1:
-        faces_dp1 = set()
-        for combo in itertools.combinations(faces_d, d + 2):
-            ps = set()
-            ps.update(*[set(elem) for elem in combo])
-            ps = Simplex(ps, distance=max([s.distance for s in combo]))
-            needed_d_simplices = ps.facets()
-            if needed_d_simplices <= faces_d:
-                faces_dp1.add(ps)
-                supersets.add(ps)
-                if max_only:
-                    supersets -= needed_d_simplices
-        d += 1
-        faces_d = faces_dp1
 
-    return supersets
+def build_forward_neighbors(edges: Iterable[Tuple[Hashable, Hashable]]) -> dict:
+    """
+    Build forward neighbor sets F(u) using degree ordering to orient edges.
+    """
+    adj: dict[Hashable, Set[Hashable]] = defaultdict(set)
+    for u, v in edges:
+        if u == v:
+            continue
+        adj[u].add(v)
+        adj[v].add(u)
+
+    deg = {u: len(nbrs) for u, nbrs in adj.items()}
+    order = sorted(adj.keys(), key=lambda u: (deg[u], u))
+    rank = {u: i for i, u in enumerate(order)}
+
+    F: dict[Hashable, Set[Hashable]] = {u: set() for u in adj}
+    for u in adj:
+        for v in adj[u]:
+            if rank[u] < rank[v]:
+                F[u].add(v)
+    return F
+
+
+def cliques_of_size(edges: Iterable[Tuple[Hashable, Hashable]], r: int) -> List[Tuple[Hashable, ...]]:
+    """
+    Enumerate all cliques of size r (r >= 1) in an undirected graph given by edges.
+    Each returned clique is a sorted tuple in the forward-order (unique, no duplicates).
+
+    For k-simplices in a clique complex, set r = k+1.
+      - r=1: vertices
+      - r=2: edges
+      - r=3: triangles (2-simplices)
+      - r=4: tetrahedra (3-simplices)
+      ...
+    """
+    if r < 1:
+        raise ValueError("r must be >= 1")
+
+    # Special cases
+    if r == 1:
+        # vertices present in edges
+        verts = set()
+        for u, v in edges:
+            verts.add(u); verts.add(v)
+        return [(v,) for v in sorted(verts)]
+
+    F = build_forward_neighbors(edges)
+    verts = sorted(F.keys(), key=lambda u: (len(F[u]), u))  # optional ordering
+
+    out: List[Tuple[Hashable, ...]] = []
+
+    def extend(prefix: Tuple[Hashable, ...], cand: Set[Hashable]):
+        # prefix is already in increasing rank order, cand are valid forward extensions
+        if len(prefix) == r:
+            out.append(prefix)
+            return
+        # prune: not enough candidates left to reach size r
+        if len(prefix) + len(cand) < r:
+            return
+
+        # iterate deterministically (optional)
+        for v in sorted(cand):
+            # new candidates must be connected to v AND still forward of v
+            new_cand = cand.intersection(F.get(v, ()))
+            extend(prefix + (v,), new_cand)
+            cand.remove(v)  # ensure no duplicates in this recursion level
+
+    for u in verts:
+        extend((u,), set(F[u]))
+
+    return out
