@@ -1,18 +1,35 @@
 from typing import Union, List, Set, FrozenSet, Tuple, Iterable, Dict, Optional, Any
 import numpy as np
+import scipy.sparse as sp
 
 from combinatorics import Point, PointSet, Simplex, SimplicialComplex, Chain, grow_skeleton
 from homology import Homology
 
 
 
-def rips_filtration(mat, max_dim: int = 3, columns = None) -> Homology:
+def rips_filtration(mat, sparsity: float = 0.5, max_dim: int = 3, columns = None) -> Homology:
     if columns is None:
         columns = range(0, mat.shape[0])
     if not len(columns) == mat.shape[0]:
         raise ValueError("columns length must match mat.shape[0]")
 
     simplices = SimplicialComplex()
+
+    # Sparsify
+    n = mat.shape[0]
+    # Get upper triangle indices
+    i_upper, j_upper = np.triu_indices(n, k=1)
+    # Extract upper triangular values
+    values_upper = mat[i_upper, j_upper]
+    # Number of elements to zero in upper triangle
+    num_zeros = int(sparsity * len(values_upper))
+    if num_zeros == 0:
+        return mat
+    # Find indices of largest values in upper triangle
+    idx_to_zero = np.argpartition(values_upper, -num_zeros)[-num_zeros:]
+    # Zero out symmetric entries
+    mat[i_upper[idx_to_zero], j_upper[idx_to_zero]] = 0
+    mat[j_upper[idx_to_zero], i_upper[idx_to_zero]] = 0
 
     # vertices
     for i in range(mat.shape[0]):

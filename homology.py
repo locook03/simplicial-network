@@ -40,6 +40,7 @@ class Persistence:
         return float(-np.sum(p/l * np.log2(p/l)))
     def total(self) -> float:
         b, d, bs, ds = list(zip(*self.interval))
+        b, d = np.asarray(b), np.asarray(d)
         fin = np.isfinite(d)
         return float(np.sum(d[fin] - b[fin]))
 
